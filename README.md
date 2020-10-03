@@ -1,6 +1,6 @@
 # TableController
 
-This is a programm made for controlling a self build heigth-adjustable desk. The desk is beeing lifted by a stepper motor which is controlled by an Arduino Uno(R)
+This is a programm made for controlling a self build adjustable-height- desk. The desk is beeing lifted by a stepper motor which is controlled by an Arduino Uno(R)
 There are five buttons foreseen:
 * drive up: if pressed the desk goes up.
 * drive down: if pressed the desk goes down.
