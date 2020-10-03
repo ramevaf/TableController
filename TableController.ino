@@ -2,6 +2,7 @@
  * Author: Daniel Ramonat
  */
 #include <Stepper.h>
+#include <EEPROM.h>
 #include "types.h"
 #include "MyStepperController.h"
 #include "MyButton.h"
@@ -23,6 +24,9 @@
 #define PIN_POS_RETURN_PIN 10
 #define PIN_POS1_PIN 12
 #define PIN_POS2_PIN 13
+// EEPROM
+#define EE_ENABLED 0          // allows to disable EEPROM writing for testing
+#define EE_START_ADDR 0
 
 // ---------- USER DEFINED DATATYPES ------------
 struct POSSTORAGE
@@ -43,6 +47,19 @@ MyButton pos2Button(PIN_POS2_PIN);
 POSSTORAGE posStorage;
 bool calibModeEnabled = false;
 
+void writePosToEE(void)
+{
+  // print for debug
+  Serial.print("\n currentPos: ");
+  Serial.print(posStorage.currentPos);
+  Serial.print("\n pos1: ");
+  Serial.print(posStorage.pos1);
+  Serial.print("\n pos2: ");
+  Serial.print(posStorage.pos2);
+  // position has changed. Update posStorage
+  if (EE_ENABLED) EEPROM.put(EE_START_ADDR, posStorage);
+}
+
 void setup()
 {
   // initialize the serial port:
@@ -53,8 +70,20 @@ void setup()
   pinMode(PIN_POS_RETURN_PIN, INPUT);
   pinMode(PIN_POS1_PIN, INPUT);
   pinMode(PIN_POS2_PIN, INPUT);
-
   pinMode(PIN_CALIBRATION_MODE_LED, OUTPUT);
+
+  // get position values from EEPROM and pass to stepper control
+  if (EE_ENABLED) EEPROM.get(EE_START_ADDR, posStorage);
+  StepperControl.setStepCount(posStorage.currentPos);
+
+  // print for debug
+  Serial.print("\n currentPos: ");
+  Serial.print(posStorage.currentPos);
+  Serial.print("\n pos1: ");
+  Serial.print(posStorage.pos1);
+  Serial.print("\n pos2: ");
+  Serial.print(posStorage.pos2);
+  
 }
 
 void loop()
@@ -75,28 +104,63 @@ void loop()
 
   StepperControl.setStepperSpeed(motorSpeed);
 
+  // ----------------------------------------------------------------------------
   // drive up button logic:
   //    pressed: drive up
+  // ----------------------------------------------------------------------------
   if (PRESSED == driveUpButtonSt.status)
   {
     StepperControl.stepClockwise();
   }
+  // ----------------------------------------------------------------------------
   // drive down button logic:
-  //    pressed: drive down
+  //    pressed: drive down until zero position (or below in calibration mode)
+  // ----------------------------------------------------------------------------
   else if (PRESSED == driveDownButtonSt.status)
   {
-    StepperControl.stepCounterClockwise();
+    if (  (StepperControl.getStepCount() > 0)
+       || (true == calibModeEnabled)
+       )
+    {
+      StepperControl.stepCounterClockwise();
+    }
+  }
+  // update position of finished
+  if (  (FALLING_EDGE == driveUpButtonSt.status)
+     || (FALLING_EDGE == driveDownButtonSt.status)
+     )
+  {
+    posStorage.currentPos = StepperControl.getStepCount();
+    writePosToEE();
   }
 
+  // ----------------------------------------------------------------------------
   // return button logic:
-  //    short tip: goto zero position
+  //    short tip: goto zero position (save zero and reset memory in calibMode)
   //    long tip: activate calibration mode
+  // ----------------------------------------------------------------------------
   if (  (FALLING_EDGE == returnButtonSts.status)
      && (SHORT_TIP == returnButtonSts.tipType)
      )
   {
-    // go to zero position
-    StepperControl.gotoPosition(0);
+    if (false == calibModeEnabled)
+    {
+      // go to zero position if not in calibration mode
+      StepperControl.gotoPosition(0);
+      writePosToEE();
+    }
+    else
+    {
+      // save current position as zero position and reset saved positions
+      StepperControl.reset();
+      posStorage.currentPos = StepperControl.getStepCount();
+      posStorage.pos1 = 0;
+      posStorage.pos2 = 0;
+      // update posStorage in EEPROM
+      writePosToEE();
+    }
+    
+    
   }
   // toggle caliibration mode on/off on return button long tip 
   if (  (LONG_TIP != returnButtonSts.tipTypeK1)
@@ -106,9 +170,11 @@ void loop()
     calibModeEnabled = !calibModeEnabled;
   }
 
+  // ----------------------------------------------------------------------------
   // pos1 button logic:
   //    short tip: goto pos1 position
   //    long tip: save current position as pos1
+  // ----------------------------------------------------------------------------
   if (  (FALLING_EDGE == pos1ButtonSts.status)
      && (SHORT_TIP == pos1ButtonSts.tipType)
      )
@@ -116,21 +182,25 @@ void loop()
     // go to pos1 position
     StepperControl.gotoPosition(posStorage.pos1);
   }
-  // toggle caliibration mode on/off on return button long tip 
+  // save current position as pos1
   if (  (LONG_TIP != pos1ButtonSts.tipTypeK1)
      && (LONG_TIP == pos1ButtonSts.tipType)
      )
   {
     posStorage.pos1 = StepperControl.getStepCount();
+    // update posStorage in EEPROM
+    writePosToEE();
     // flicker LED
     digitalWrite(PIN_CALIBRATION_MODE_LED, HIGH);
     delay(100);
     digitalWrite(PIN_CALIBRATION_MODE_LED, LOW);
   }
 
+  // ----------------------------------------------------------------------------
   // pos2 button logic:
   //    short tip: goto pos2 position
   //    long tip: save current position as pos2
+  // ----------------------------------------------------------------------------
   if (  (FALLING_EDGE == pos2ButtonSts.status)
      && (SHORT_TIP == pos2ButtonSts.tipType)
      )
@@ -138,17 +208,20 @@ void loop()
     // go to pos2 position
     StepperControl.gotoPosition(posStorage.pos2);
   }
-  // toggle caliibration mode on/off on return button long tip 
+  // save current position as pos2Button
   if (  (LONG_TIP != pos2ButtonSts.tipTypeK1)
      && (LONG_TIP == pos2ButtonSts.tipType)
      )
   {
     posStorage.pos2 = StepperControl.getStepCount();
+    // update posStorage in EEPROM
+    writePosToEE();
     // flicker LED
     digitalWrite(PIN_CALIBRATION_MODE_LED, HIGH);
     delay(100);
     digitalWrite(PIN_CALIBRATION_MODE_LED, LOW);
   }
+
 
   // if calibration mode turn on LED
   if (true == calibModeEnabled)
@@ -159,6 +232,7 @@ void loop()
   {
     digitalWrite(PIN_CALIBRATION_MODE_LED, LOW);
   }
+
   
   delay(1);
 }

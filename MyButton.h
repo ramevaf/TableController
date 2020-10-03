@@ -55,7 +55,7 @@ public:
 private:
   // paramters
   ULONG debounceDelay = 50;
-  ULONG longTipDelay = 3000;
+  ULONG longTipDelay = 2000;
   USHORT pinNumber;
   // internal stati
   ULONG lastDebounceTime;

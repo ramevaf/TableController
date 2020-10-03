@@ -17,16 +17,26 @@ public:
     return stepCount;
   }
 
+  void setStepCount(LONG pos)
+  {
+    stepCount = pos;
+  }
+
+  void reset(void)
+  {
+    stepCount = 0;
+  }
+
   void stepClockwise(void)
   {
     myStepper->step(-1);
-    stepCount--;
+    stepCount++;
   }
 
   void stepCounterClockwise(void)
   {
     myStepper->step(1);
-    stepCount++;
+    stepCount--;
   }
 
   void setStepperSpeed(UINT motSpeed)
@@ -40,11 +50,11 @@ public:
     {
       if (stepCount > targetStep)
       {
-        stepClockwise();
+        stepCounterClockwise();
       }
       else
       {
-        stepCounterClockwise();
+        stepClockwise();
       }      
     }
   }
