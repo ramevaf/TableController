@@ -1,23 +1,48 @@
 /*
- * Author: Daniel Ramonat
- */
+  This file contains a small programm for controlling a self build adjustable-height-desk. The desk
+  is beeing lifted by a stepper motor which is controlled by an Arduino Uno(R) There are five 
+  buttons foreseen:
+
+    - drive up: if pressed the desk goes up.
+    - drive down: if pressed the desk goes down.
+    - goto zero: if pressed short the desk motor drives to the lowest position. If pressed long the 
+      control switches into calibration mode.
+    - goto pos1: if pressed short the desk motor drives to the stored position 1. If pressed long the
+      current position is stored as position 1.
+    - goto pos2: if pressed short the desk motor drives to the stored position 2. If pressed long the
+      current position is stored as position 2.
+
+  Calibration mode: in this mode you can lift the table with the up/down button as normal but the end
+  switch protection is turned off. If you press the goto zero button short the current position will
+  be stored as lowest possible position.
+
+  Author: Daniel Ramonat
+  Date: 07.10.2020
+*/
+
 #include <Stepper.h>
+#include <AccelStepper.h>
 #include <EEPROM.h>
 #include "types.h"
-#include "MyStepperController.h"
+#include "myLED.h"
 #include "MyButton.h"
 
 
 // SERIAL INTERFACE
 #define SERIAL_BAUD 9600
+// TASK SCHEDULER
+#define TASK_TIME_20MS 20
 // STEPPER
-#define STEPPER_STEPS_PER_REV 200
-#define STEPPER_MAX_SPEED 40
+#define STEPPER_STEPS_PER_REV 400
+#define STEPPER_MAX_SPEED 10
+#define STEPPER_ACCEL 10
+#define STEPPER_MIN_POS 0
+#define STEPPER_MAX_POS 40000
+#define STEPPER_CALIBMODE_POS_EXTENSION 40000
 // PINS
-#define PIN_STEPPER_A_PLUS 2
-#define PIN_STEPPER_A_MINUS 3
-#define PIN_STEPPER_B_PLUS 4
-#define PIN_STEPPER_B_MINUS 5
+#define PIN_STEPPER_STEP 3
+#define PIN_STEPPER_DIR 2
+#define PIN_STEPPER_ENBL 4
 #define PIN_CALIBRATION_MODE_LED 7
 #define PIN_DRIVE_UP 8
 #define PIN_DRIVE_DOWN 9
@@ -28,7 +53,7 @@
 #define EE_ENABLED 0          // allows to disable EEPROM writing for testing
 #define EE_START_ADDR 0
 
-// ---------- USER DEFINED DATATYPES ------------
+/* ---------- USER DEFINED DATATYPES ------------ */
 struct POSSTORAGE
 {
   LONG currentPos;
@@ -37,29 +62,37 @@ struct POSSTORAGE
 };
 
 
-// ---------- GLOBAL VARIABLES ------------
-MyStepperController StepperControl(STEPPER_STEPS_PER_REV, PIN_STEPPER_A_PLUS, PIN_STEPPER_A_MINUS, PIN_STEPPER_B_PLUS, PIN_STEPPER_B_MINUS);
+/* ---------- GLOBAL VARIABLES ------------ */
+AccelStepper stepper(1 , PIN_STEPPER_STEP, PIN_STEPPER_DIR);
 MyButton driveUpButton(PIN_DRIVE_UP);
 MyButton driveDownButton(PIN_DRIVE_DOWN);
 MyButton returnButton(PIN_POS_RETURN_PIN);
 MyButton pos1Button(PIN_POS1_PIN);
 MyButton pos2Button(PIN_POS2_PIN);
+MyLED calibLed(PIN_CALIBRATION_MODE_LED);
 POSSTORAGE posStorage;
 bool calibModeEnabled = false;
+ULONG tLastT20call;
+// K1 values:
+BUTTON_STS returnButtonStsK1;
+BUTTON_STS pos1ButtonStsK1;
+BUTTON_STS pos2ButtonStsK1;
 
 void writePosToEE(void)
 {
   // print for debug
-  Serial.print("\n currentPos: ");
-  Serial.print(posStorage.currentPos);
-  Serial.print("\n pos1: ");
-  Serial.print(posStorage.pos1);
-  Serial.print("\n pos2: ");
-  Serial.print(posStorage.pos2);
+//  Serial.print("\n currentPos: ");
+//  Serial.print(posStorage.currentPos);
+//  Serial.print("\n pos1: ");
+//  Serial.print(posStorage.pos1);
+//  Serial.print("\n pos2: ");
+//  Serial.print(posStorage.pos2);
+
   // position has changed. Update posStorage
   if (EE_ENABLED) EEPROM.put(EE_START_ADDR, posStorage);
 }
 
+/* setup task of the Arduino: called once at startup */
 void setup()
 {
   // initialize the serial port:
@@ -71,73 +104,98 @@ void setup()
   pinMode(PIN_POS1_PIN, INPUT);
   pinMode(PIN_POS2_PIN, INPUT);
   pinMode(PIN_CALIBRATION_MODE_LED, OUTPUT);
-
+  
   // get position values from EEPROM and pass to stepper control
   if (EE_ENABLED) EEPROM.get(EE_START_ADDR, posStorage);
-  StepperControl.setStepCount(posStorage.currentPos);
+  // StepperControl.setStepCount(posStorage.currentPos);
 
-  // print for debug
-  Serial.print("\n currentPos: ");
-  Serial.print(posStorage.currentPos);
-  Serial.print("\n pos1: ");
-  Serial.print(posStorage.pos1);
-  Serial.print("\n pos2: ");
-  Serial.print(posStorage.pos2);
+  /* set stepper speed */
+  stepper.setMaxSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
+  stepper.setAcceleration(STEPPER_ACCEL*STEPPER_STEPS_PER_REV);
+  
   
 }
 
-void loop()
+/* called every 20 ms. All the slow stuff gets in here */
+void task_20_ms(void)
 {
+  // read input of the buttons (rather slow)  
+  driveUpButton.updateStatus();
+  driveDownButton.updateStatus();
+  returnButton.updateStatus();
+  pos1Button.updateStatus();
+  pos2Button.updateStatus();
+  // write LED output
+  calibLed.writeOut();
+}
 
-  // read the analog value connected to the potentiometer for controlling the speed
-  // and map it to a range from 1 to 100:
-  unsigned short sensorReading = analogRead(A0);
-  int motorSpeed = map(sensorReading, 0, 1023, 1, STEPPER_MAX_SPEED);
-  // read buttons
+/* fast task for driving the motor. This is called as often as possible */
+void task_fast(void)
+{
+  // only read status but not calculate
   BUTTON_STS driveUpButtonSt = driveUpButton.getStatus();
   BUTTON_STS driveDownButtonSt = driveDownButton.getStatus();
   BUTTON_STS returnButtonSts = returnButton.getStatus();
   BUTTON_STS pos1ButtonSts = pos1Button.getStatus();
   BUTTON_STS pos2ButtonSts = pos2Button.getStatus();
 
-  // Serial.print(pos1ButtonTipType);
-
-  StepperControl.setStepperSpeed(motorSpeed);
-
   // ----------------------------------------------------------------------------
   // drive up button logic:
   //    pressed: drive up
   // ----------------------------------------------------------------------------
-  if (PRESSED == driveUpButtonSt.status)
+  if (  (PRESSED == driveUpButtonSt.status)
+     || (FALLING_EDGE == driveUpButtonSt.status)
+     )
   {
-    StepperControl.stepClockwise();
+    if (true == calibModeEnabled)
+    {
+      stepper.moveTo(STEPPER_MAX_POS+STEPPER_CALIBMODE_POS_EXTENSION);
+    }
+    else
+    {
+      stepper.moveTo(STEPPER_MAX_POS);
+    }    
+    stepper.run();
   }
+  
   // ----------------------------------------------------------------------------
   // drive down button logic:
   //    pressed: drive down until zero position (or below in calibration mode)
   // ----------------------------------------------------------------------------
-  else if (PRESSED == driveDownButtonSt.status)
+  else if (  (PRESSED == driveDownButtonSt.status)
+          || (FALLING_EDGE == driveDownButtonSt.status)
+          )
   {
-    if (  (StepperControl.getStepCount() > 0)
-       || (true == calibModeEnabled)
-       )
+    if (true == calibModeEnabled)
     {
-      StepperControl.stepCounterClockwise();
+      stepper.moveTo(STEPPER_MIN_POS-STEPPER_CALIBMODE_POS_EXTENSION);
     }
+    else
+    {
+      stepper.moveTo(STEPPER_MIN_POS);
+    }    
+    stepper.run();
   }
-  // update position of finished
-  if (  (FALLING_EDGE == driveUpButtonSt.status)
-     || (FALLING_EDGE == driveDownButtonSt.status)
+  else
+  {
+    stepper.stop();
+    stepper.runToPosition();
+  }
+
+  // TBD: update position of finished
+  if (  (NOT_PRESSED == driveUpButtonSt.status)
+     && (NOT_PRESSED == driveDownButtonSt.status)
+     && (false == stepper.isRunning())
      )
   {
-    posStorage.currentPos = StepperControl.getStepCount();
+    // posStorage.currentPos = StepperControl.currentPosition();
     writePosToEE();
   }
 
   // ----------------------------------------------------------------------------
   // return button logic:
   //    short tip: goto zero position (save zero and reset memory in calibMode)
-  //    long tip: activate calibration mode
+  //    long tip: toggle calibration mode
   // ----------------------------------------------------------------------------
   if (  (FALLING_EDGE == returnButtonSts.status)
      && (SHORT_TIP == returnButtonSts.tipType)
@@ -146,29 +204,33 @@ void loop()
     if (false == calibModeEnabled)
     {
       // go to zero position if not in calibration mode
-      StepperControl.gotoPosition(0);
+      stepper.moveTo(0);
+      stepper.runToPosition();
       writePosToEE();
     }
     else
     {
       // save current position as zero position and reset saved positions
-      StepperControl.reset();
-      posStorage.currentPos = StepperControl.getStepCount();
-      posStorage.pos1 = 0;
-      posStorage.pos2 = 0;
+      stepper.setCurrentPosition(STEPPER_MIN_POS);
+      posStorage.currentPos = stepper.currentPosition();
+      posStorage.pos1 = STEPPER_MIN_POS;
+      posStorage.pos2 = STEPPER_MIN_POS;
       // update posStorage in EEPROM
       writePosToEE();
+      // blink LED
+      calibLed.blink(300);
     }
-    
-    
   }
+  
   // toggle caliibration mode on/off on return button long tip 
-  if (  (LONG_TIP != returnButtonSts.tipTypeK1)
+  if (  (LONG_TIP != returnButtonStsK1.tipType)
      && (LONG_TIP == returnButtonSts.tipType)
      )
   {
     calibModeEnabled = !calibModeEnabled;
+    calibLed.toggle();
   }
+
 
   // ----------------------------------------------------------------------------
   // pos1 button logic:
@@ -180,20 +242,19 @@ void loop()
      )
   {
     // go to pos1 position
-    StepperControl.gotoPosition(posStorage.pos1);
+    stepper.moveTo(posStorage.pos1);
+    stepper.runToPosition();
   }
   // save current position as pos1
-  if (  (LONG_TIP != pos1ButtonSts.tipTypeK1)
+  if (  (LONG_TIP != pos1ButtonStsK1.tipType)
      && (LONG_TIP == pos1ButtonSts.tipType)
      )
   {
-    posStorage.pos1 = StepperControl.getStepCount();
+    posStorage.pos1 = stepper.currentPosition();
     // update posStorage in EEPROM
     writePosToEE();
-    // flicker LED
-    digitalWrite(PIN_CALIBRATION_MODE_LED, HIGH);
-    delay(100);
-    digitalWrite(PIN_CALIBRATION_MODE_LED, LOW);
+    // blink LED
+    calibLed.blink(300);
   }
 
   // ----------------------------------------------------------------------------
@@ -206,33 +267,37 @@ void loop()
      )
   {
     // go to pos2 position
-    StepperControl.gotoPosition(posStorage.pos2);
+    stepper.moveTo(posStorage.pos2);
+    stepper.runToPosition();
   }
   // save current position as pos2Button
-  if (  (LONG_TIP != pos2ButtonSts.tipTypeK1)
+  if (  (LONG_TIP != pos2ButtonStsK1.tipType)
      && (LONG_TIP == pos2ButtonSts.tipType)
      )
   {
-    posStorage.pos2 = StepperControl.getStepCount();
+    posStorage.pos2 = stepper.currentPosition();
     // update posStorage in EEPROM
     writePosToEE();
-    // flicker LED
-    digitalWrite(PIN_CALIBRATION_MODE_LED, HIGH);
-    delay(100);
-    digitalWrite(PIN_CALIBRATION_MODE_LED, LOW);
+    // blink LED
+    calibLed.blink(300);
   }
 
+  returnButtonStsK1 = returnButtonSts;
+  pos1ButtonStsK1 = pos1ButtonSts;
+  pos2ButtonStsK1 = pos2ButtonSts;
+}
 
-  // if calibration mode turn on LED
-  if (true == calibModeEnabled)
-  {
-    digitalWrite(PIN_CALIBRATION_MODE_LED, HIGH);
-  }
-  else
-  {
-    digitalWrite(PIN_CALIBRATION_MODE_LED, LOW);
-  }
-
+/* this is the main loop of the Arduino. It contains a very simple
+  task sheduler to have a fast task for the motor controll and a slow
+  on for calculating the inputs and outputs */
+void loop()
+{
+  ULONG tCurrent = millis();
   
-  delay(1);
+  if(tCurrent - tLastT20call >= TASK_TIME_20MS)
+  {
+    task_20_ms();
+    tLastT20call = tCurrent;
+  }
+  task_fast();
 }

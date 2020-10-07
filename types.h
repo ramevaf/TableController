@@ -1,3 +1,11 @@
+/*
+  Some typdefinitions for easier declaration
+
+  Author: Daniel Ramonat
+  Date: 07.10.2020
+*/
+
+
 #ifndef TYPES_H
 #define TYPES_H
 

@@ -1,8 +1,19 @@
+/*
+  This file contains a class deinition for a debounced input button which provides also an 
+  interface to distinguish between short and long tips. The calculation of the internal stati and
+  grabing the information is split up into different methods so you can controll how often you need
+  to update the status.
+
+  Author: Daniel Ramonat
+  Date: 07.10.2020
+*/
+
 #ifndef MYBUTTON_H
 #define MYBUTTON_H
 
 #include "types.h"
 
+/* typdefs */
 enum TIPSTS
 {
   NOT_PRESSED,
@@ -10,6 +21,7 @@ enum TIPSTS
   RISING_EDGE,
   FALLING_EDGE
 };
+
 enum TIPTYPE
 {
   NONE,
@@ -21,54 +33,60 @@ struct BUTTON_STS
 {
   TIPSTS status;
   TIPTYPE tipType;
-  TIPSTS statusK1;
-  TIPTYPE tipTypeK1;
 };
 
+/* class definiton */
 class MyButton
 {
 public:
+  /* constructor: needs the arduino pin number */
   MyButton(short pinNumber)
   {
     this->pinNumber = pinNumber;
     pinMode(pinNumber, INPUT);
   }
 
-  BUTTON_STS getStatus(void)
+  /* reads in the pin and calculates the new status */
+  void updateStatus(void)
   {
-    setTipStatus();
-    setTipType();
+    rawButtonSts = digitalRead(pinNumber);
+    updateTipStatus(rawButtonSts);
+    updateTipType();
+  }
 
+  /* getter for the status */
+  BUTTON_STS getStatus(void)
+  {  
     return btnSts;
-  }  
+  }
 
+  /* set debounce time */
   void setDebounceDelay(ULONG ms)
   {
     debounceDelay = ms;
   }
 
+  /* set time after which the tip is considered a long tip*/
   void setLongTipDelay(ULONG ms)
   {
     longTipDelay = ms;
   }
 
 private:
-  // paramters
-  ULONG debounceDelay = 50;
+  // default paramteters
+  ULONG debounceDelay = 100;
   ULONG longTipDelay = 2000;
   USHORT pinNumber;
   // internal stati
   ULONG lastDebounceTime;
   ULONG lastRisingEdgeTime;
+  USHORT rawButtonSts;
   USHORT rawButtonStsK1;
   BUTTON_STS btnSts;
 
-  void setTipStatus(void)
+  /* calculates whether the button is pressed and the edges */
+  void updateTipStatus(USHORT readVal)
   {
-    int readVal = digitalRead(pinNumber);
-
-    btnSts.statusK1 = btnSts.status;
-
     // safe timestamp of level change
     if (readVal != rawButtonStsK1)
     {
@@ -79,7 +97,6 @@ private:
         lastRisingEdgeTime = millis();
       }
     }
-
     // compare timestamps for debouncing
     if ((millis() - lastDebounceTime) > debounceDelay)
     {
@@ -116,10 +133,9 @@ private:
     rawButtonStsK1 = readVal;
   }
 
-  void setTipType(void)
+  /* calculates whether the press is a long/short one */
+  void updateTipType(void)
   {
-    btnSts.tipTypeK1 = btnSts.tipType;
-
     // even on FALLING_EDGE the tiptype is transmitted to be SHORT_TIP or LONG_TIP. This makes it way easier to check for type
     if (NOT_PRESSED != btnSts.status)
     {
