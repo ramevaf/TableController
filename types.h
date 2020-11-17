@@ -19,5 +19,7 @@
 #define FLOAT   float
 #define DOUBLE  double
 
+#define LONG_MIN -2147483648;
+#define LONG_MAX  2147483647;
 
 #endif

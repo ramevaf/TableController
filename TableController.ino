@@ -34,20 +34,20 @@
 // STEPPER
 #define STEPPER_STEPS_PER_REV 400
 #define STEPPER_MAX_SPEED 3
-#define STEPPER_ACCEL 3
+#define STEPPER_ACCEL 2
 #define STEPPER_MIN_POS 0
 #define STEPPER_MAX_POS 45000
 #define STEPPER_CALIBMODE_POS_EXTENSION 40000
 // PINS
-#define PIN_STEPPER_STEP 3
-#define PIN_STEPPER_DIR 2
-#define PIN_STEPPER_ENBL 4
-#define PIN_CALIBRATION_MODE_LED 7
-#define PIN_DRIVE_UP 8
-#define PIN_DRIVE_DOWN 9
-#define PIN_POS_RETURN_PIN 10
-#define PIN_POS1_PIN 12
-#define PIN_POS2_PIN 13
+#define PIN_STEPPER_DIR           2
+#define PIN_STEPPER_STEP          3
+#define PIN_STEPPER_ENBL          4
+#define PIN_CALIBRATION_MODE_LED  7
+#define PIN_DRIVE_UP              8
+#define PIN_DRIVE_DOWN            9
+#define PIN_POS_RETURN_PIN        10
+#define PIN_POS1_PIN              12
+#define PIN_POS2_PIN              13
 // EEPROM
 #define EE_ENABLED 0          // allows to disable EEPROM writing for testing
 #define EE_TIME_AFTER_LAST_MOVE 5000
@@ -64,14 +64,13 @@ struct POSSTORAGE
 
 /* ---------- GLOBAL VARIABLES ------------ */
 // AccelStepper stepper(1 , PIN_STEPPER_STEP, PIN_STEPPER_DIR);
-// MyStepperController stepper(STEPPER_STEPS_PER_REV, PIN_CALIBRATION_MODE_LED, PIN_STEPPER_DIR);
 MyStepperController stepper(STEPPER_STEPS_PER_REV, PIN_STEPPER_STEP, PIN_STEPPER_DIR);
 MyButton driveUpButton(PIN_DRIVE_UP);
 MyButton driveDownButton(PIN_DRIVE_DOWN);
 MyButton returnButton(PIN_POS_RETURN_PIN);
 MyButton pos1Button(PIN_POS1_PIN);
 MyButton pos2Button(PIN_POS2_PIN);
-// MyLED calibLed(PIN_CALIBRATION_MODE_LED);
+MyLED calibLed(PIN_CALIBRATION_MODE_LED);
 POSSTORAGE posStorage;
 bool calibModeEnabled = false;
 ULONG tLastT20call;
@@ -85,12 +84,12 @@ BUTTON_STS pos2ButtonStsK1;
 void savePosToEE(void)
 {
   // print for debug
-  Serial.print("\n currentPos: ");
-  Serial.print(posStorage.currentPos);
-  Serial.print("\n pos1: ");
-  Serial.print(posStorage.pos1);
-  Serial.print("\n pos2: ");
-  Serial.print(posStorage.pos2);
+  // Serial.print("\n currentPos: ");
+  // Serial.print(posStorage.currentPos);
+  // Serial.print("\n pos1: ");
+  // Serial.print(posStorage.pos1);
+  // Serial.print("\n pos2: ");
+  // Serial.print(posStorage.pos2);
 
   // position has changed. Update posStorage
   if (EE_ENABLED) EEPROM.put(EE_START_ADDR, posStorage);
@@ -104,17 +103,23 @@ void setup()
   
   // get position values from EEPROM and pass to stepper control
   if (EE_ENABLED) EEPROM.get(EE_START_ADDR, posStorage);
-  // stepper.setCurrentPosition(posStorage.currentPos);
+  stepper.setStepCount(posStorage.currentPos);
 
   /* set stepper speed */
-  // stepper.setMaxSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
+  stepper.setMaxSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
   stepper.setAcceleration(STEPPER_ACCEL*STEPPER_STEPS_PER_REV);
-  
+  stepper.setLowerLimit(0);
+  stepper.setUpperLimit(5000);
 }
 
 /* called every 20 ms. All the slow stuff gets in here */
-void task_20_ms(void)
+void task20ms(void)
 {
+  // Serial.print("\n speed: ");
+  // Serial.print(stepper.getCurrentSpeed());
+  // Serial.print("\t position: ");
+  // Serial.print(stepper.getStepCount());
+
   // read input of the buttons (rather slow)  
   driveUpButton.updateStatus();
   driveDownButton.updateStatus();
@@ -122,7 +127,7 @@ void task_20_ms(void)
   pos1Button.updateStatus();
   pos2Button.updateStatus();
   // write LED output
-  // calibLed.writeOut();
+  calibLed.writeOut();
 
   // if (true == stepper.isRunning())
   // {
@@ -141,13 +146,10 @@ void task_20_ms(void)
   //   }
   // }
 
-  Serial.print("\n Stepcount: ");
-  Serial.print(stepper.getStepCount());
-  
 }
 
 /* fast task for driving the motor. This is called as often as possible */
-void task_fast(void)
+void taskFast(void)
 {
   // only read status but not calculate
   BUTTON_STS driveUpButtonSt = driveUpButton.getStatus();
@@ -169,14 +171,13 @@ void task_fast(void)
   {
     if (true == calibModeEnabled)
     {
-      // stepper.moveTo(STEPPER_MAX_POS+STEPPER_CALIBMODE_POS_EXTENSION);
+      stepper.setTargetSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
     }
     else
     {
       stepper.setTargetSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
       // stepper.moveTo(STEPPER_MAX_POS);
     }    
-    // stepper.run();
   }
   
   // ----------------------------------------------------------------------------
@@ -189,114 +190,117 @@ void task_fast(void)
   {
     if (true == calibModeEnabled)
     {
-      // stepper.moveTo(STEPPER_MIN_POS-STEPPER_CALIBMODE_POS_EXTENSION);
+      stepper.setTargetSpeed(-STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
     }
     else
     {
       stepper.setTargetSpeed(-STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
       // stepper.moveTo(STEPPER_MIN_POS);
     }    
-    // stepper.run();
   }
   else
   {
+    // stop stepper
     stepper.setTargetSpeed(0.0);
-    // stepper.stop();
-    // stepper.runToPosition();
   }
+
+  // ----------------------------------------------------------------------------
+  // return button logic:
+  //    short tip: goto zero position (save zero and reset memory in calibMode)
+  //    long tip: toggle calibration mode
+  // ----------------------------------------------------------------------------
+  if (  (FALLING_EDGE == returnButtonSts.status)
+     && (FALLING_EDGE != returnButtonStsK1.status)
+     && (SHORT_TIP == returnButtonSts.tipType)
+     )
+  {
+    if (false == calibModeEnabled)
+    {
+      // go to zero position if not in calibration mode
+      stepper.moveTo(0);
+    }
+    else
+    {
+      // save current position as zero position and reset saved positions
+      stepper.setStepCount(STEPPER_MIN_POS);
+      posStorage.currentPos = stepper.getStepCount();
+      posStorage.pos1 = STEPPER_MIN_POS;
+      posStorage.pos2 = STEPPER_MIN_POS;
+      // blink LED
+      calibLed.blink(300);
+    }
+  }
+
+  // Serial.print("\n stepperPos: ");
+  // Serial.print(stepper.getStepCount());
+  
+
+  // toggle caliibration mode on/off on return button long tip 
+  if (  (LONG_TIP != returnButtonStsK1.tipType)
+     && (LONG_TIP == returnButtonSts.tipType)
+     )
+  {
+    calibModeEnabled = !calibModeEnabled;
+    calibLed.toggle();
+  }
+
+
+  // ----------------------------------------------------------------------------
+  // pos1 button logic:
+  //    short tip: goto pos1 position
+  //    long tip: save current position as pos1
+  // ----------------------------------------------------------------------------
+  if (  (FALLING_EDGE == pos1ButtonSts.status)
+     && (FALLING_EDGE != pos1ButtonStsK1.status)
+     && (SHORT_TIP == pos1ButtonSts.tipType)
+     )
+  {
+    // go to pos1 position
+    stepper.moveTo(posStorage.pos1);
+  }
+  // save current position as pos1
+  if (  (LONG_TIP != pos1ButtonStsK1.tipType)
+     && (LONG_TIP == pos1ButtonSts.tipType)
+     )
+  {
+    posStorage.pos1 = stepper.getStepCount();
+    savePosToEE();
+    // blink LED
+    calibLed.blink(300);
+  }
+
+  // ----------------------------------------------------------------------------
+  // pos2 button logic:
+  //    short tip: goto pos2 position
+  //    long tip: save current position as pos2
+  // ----------------------------------------------------------------------------
+  if (  (FALLING_EDGE == pos2ButtonSts.status)
+     && (FALLING_EDGE != pos2ButtonStsK1.status)
+     && (SHORT_TIP == pos2ButtonSts.tipType)
+     )
+  {
+    // go to pos2 position
+    stepper.moveTo(posStorage.pos2);
+  }
+  // save current position as pos2Button
+  if (  (LONG_TIP != pos2ButtonStsK1.tipType)
+     && (LONG_TIP == pos2ButtonSts.tipType)
+     )
+  {
+    posStorage.pos2 = stepper.getStepCount();
+    savePosToEE();
+    // blink LED
+    calibLed.blink(300);
+  }
+
 
   stepper.run();
 
-  // // ----------------------------------------------------------------------------
-  // // return button logic:
-  // //    short tip: goto zero position (save zero and reset memory in calibMode)
-  // //    long tip: toggle calibration mode
-  // // ----------------------------------------------------------------------------
-  // if (  (FALLING_EDGE == returnButtonSts.status)
-  //    && (SHORT_TIP == returnButtonSts.tipType)
-  //    )
-  // {
-  //   if (false == calibModeEnabled)
-  //   {
-  //     // go to zero position if not in calibration mode
-  //     stepper.moveTo(0);
-  //     stepper.runToPosition();
-  //   }
-  //   else
-  //   {
-  //     // save current position as zero position and reset saved positions
-  //     stepper.setCurrentPosition(STEPPER_MIN_POS);
-  //     posStorage.currentPos = stepper.currentPosition();
-  //     posStorage.pos1 = STEPPER_MIN_POS;
-  //     posStorage.pos2 = STEPPER_MIN_POS;
-  //     // blink LED
-  //     calibLed.blink(300);
-  //   }
-  // }
-  
-  // // toggle caliibration mode on/off on return button long tip 
-  // if (  (LONG_TIP != returnButtonStsK1.tipType)
-  //    && (LONG_TIP == returnButtonSts.tipType)
-  //    )
-  // {
-  //   calibModeEnabled = !calibModeEnabled;
-  //   calibLed.toggle();
-  // }
+  posStorage.currentPos = stepper.getStepCount();
 
-
-  // // ----------------------------------------------------------------------------
-  // // pos1 button logic:
-  // //    short tip: goto pos1 position
-  // //    long tip: save current position as pos1
-  // // ----------------------------------------------------------------------------
-  // if (  (FALLING_EDGE == pos1ButtonSts.status)
-  //    && (SHORT_TIP == pos1ButtonSts.tipType)
-  //    )
-  // {
-  //   // go to pos1 position
-  //   stepper.moveTo(posStorage.pos1);
-  //   stepper.runToPosition();
-  // }
-  // // save current position as pos1
-  // if (  (LONG_TIP != pos1ButtonStsK1.tipType)
-  //    && (LONG_TIP == pos1ButtonSts.tipType)
-  //    )
-  // {
-  //   posStorage.pos1 = stepper.currentPosition();
-  //   savePosToEE();
-  //   // blink LED
-  //   calibLed.blink(300);
-  // }
-
-  // // ----------------------------------------------------------------------------
-  // // pos2 button logic:
-  // //    short tip: goto pos2 position
-  // //    long tip: save current position as pos2
-  // // ----------------------------------------------------------------------------
-  // if (  (FALLING_EDGE == pos2ButtonSts.status)
-  //    && (SHORT_TIP == pos2ButtonSts.tipType)
-  //    )
-  // {
-  //   // go to pos2 position
-  //   stepper.moveTo(posStorage.pos2);
-  //   stepper.runToPosition();
-  // }
-  // // save current position as pos2Button
-  // if (  (LONG_TIP != pos2ButtonStsK1.tipType)
-  //    && (LONG_TIP == pos2ButtonSts.tipType)
-  //    )
-  // {
-  //   posStorage.pos2 = stepper.currentPosition();
-  //   savePosToEE();
-  //   // blink LED
-  //   calibLed.blink(300);
-  // }
-
-  // posStorage.currentPos = stepper.currentPosition();
-
-  // returnButtonStsK1 = returnButtonSts;
-  // pos1ButtonStsK1 = pos1ButtonSts;
-  // pos2ButtonStsK1 = pos2ButtonSts;
+  returnButtonStsK1 = returnButtonSts;
+  pos1ButtonStsK1 = pos1ButtonSts;
+  pos2ButtonStsK1 = pos2ButtonSts;
 }
 
 /* this is the main loop of the Arduino. It contains a very simple
@@ -308,8 +312,8 @@ void loop()
   
   if(tCurrent - tLastT20call >= TASK_TIME_20MS)
   {
-    task_20_ms();
+    task20ms();
     tLastT20call = tCurrent;
   }
-  task_fast();
+  taskFast();
 }
