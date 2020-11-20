@@ -31,10 +31,11 @@
 #define SERIAL_BAUD 9600
 // TASK SCHEDULER
 #define TASK_TIME_20MS 20
+#define TASK_TIME_1000MS 1000
 // STEPPER
 #define STEPPER_STEPS_PER_REV 400
 #define STEPPER_MAX_SPEED 3
-#define STEPPER_ACCEL 2
+#define STEPPER_ACCEL 3
 #define STEPPER_MIN_POS 0
 #define STEPPER_MAX_POS 45000
 #define STEPPER_CALIBMODE_POS_EXTENSION 40000
@@ -74,6 +75,7 @@ MyLED calibLed(PIN_CALIBRATION_MODE_LED);
 POSSTORAGE posStorage;
 bool calibModeEnabled = false;
 ULONG tLastT20call;
+ULONG tLastT1000call;
 ULONG tLastMotorRunning;
 bool posWritten = true;
 // K1 values:
@@ -115,11 +117,6 @@ void setup()
 /* called every 20 ms. All the slow stuff gets in here */
 void task20ms(void)
 {
-  // Serial.print("\n speed: ");
-  // Serial.print(stepper.getCurrentSpeed());
-  // Serial.print("\t position: ");
-  // Serial.print(stepper.getStepCount());
-
   // read input of the buttons (rather slow)  
   driveUpButton.updateStatus();
   driveDownButton.updateStatus();
@@ -146,6 +143,17 @@ void task20ms(void)
   //   }
   // }
 
+}
+
+/* called every 1000 ms. All the slow stuff gets in here */
+void task1000ms(void)
+{
+  // Serial.print("\n speed: ");
+  // Serial.print(stepper.getCurrentSpeed());
+  // Serial.print("\t position: ");
+  // Serial.print(stepper.getStepCount());
+  // Serial.print("\t dir: ");
+  // Serial.print(stepper.getRotDir());
 }
 
 /* fast task for driving the motor. This is called as often as possible */
@@ -315,5 +323,11 @@ void loop()
     task20ms();
     tLastT20call = tCurrent;
   }
+  else if (tCurrent - tLastT1000call >= TASK_TIME_1000MS)
+  {
+    task1000ms();
+    tLastT1000call = tCurrent;
+  }
+  
   taskFast();
 }

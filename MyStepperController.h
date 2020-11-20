@@ -4,9 +4,10 @@
 #include "types.h"
 #include "Arduino.h"
 
-#define PULSE_DURATION 50 // 50 µs pulse on step 
-#define STOP_THRESHOLD 0.05
+#define PULSE_DURATION 1  // microseconds
 #define SECOND 1000000
+
+const FLOAT STOP_THRESHOLD = 0.5;  // steps/s
 
 enum DIRECTION
 {
@@ -15,15 +16,16 @@ enum DIRECTION
   COUNTERCLOCKWISE
 };
 
-enum CONTROL_MODE
+enum CTRL_MODE
 {
+  END_PROTECTION,
   POSITIONING,
-  SPEED_CTRL
+  UNLIMED
 };
 
 class MyStepperController
 {
-  public:
+public:
   MyStepperController(UINT stepsPerRev, SHORT pinStep, SHORT pinDir);
 
   /* main method for calculating the outputs needed for driving to stepper 
@@ -47,6 +49,10 @@ class MyStepperController
 
   /* returns current speed */
   FLOAT getCurrentSpeed(void);
+  /* returns current speed */
+  CTRL_MODE getCtrlMode(void);
+
+  DIRECTION getRotDir(void);
 
   void setLowerLimit(LONG pos);
 
@@ -56,9 +62,9 @@ class MyStepperController
 
   void reset(void);
 
-  void stepClockwise(void);
+  void doStep(DIRECTION direction);
 
-  void stepCounterClockwise(void);
+  void runSpeed(void);
 
 private:
   const USHORT pinStep;     // pin number of STEP pin
@@ -72,12 +78,14 @@ private:
   FLOAT maxSpeed = SECOND/(PULSE_DURATION*2); // maximum allowed speed in steps/s
   UINT acceleration;        // acceleration in steps/s^2
   USHORT stepPinLvl = LOW;  // current level of the STEP pin
-  ULONG tCurrent;           // current timestamp in micros of the call of run() method
-  ULONG tlastRun;           // timestamp in micros of the last call of run() method
+  // ULONG tCurrent;           // current timestamp in micros of the call of run() method
+  // ULONG tlastRun;           // timestamp in micros of the last call of run() method
   ULONG tPulseBegin;        // timestamp in begining of the current period for the STEP pin
   DIRECTION rotDir;         // current motor direction (cw/ccw/stop)
 
-  CONTROL_MODE controlMode;
+  ULONG tPeriod;
+
+  CTRL_MODE ctrlMode;
   LONG startingPos;
   LONG targetPos;
 
@@ -87,7 +95,9 @@ private:
 
   /* calculates the current speed depending on the user given target speed
    * considering the acceleration */
-  void calcSpeedFreeRun(void);
+  void calcSpeed(void);
+
+  ULONG getNewPeriod(void);
 
   /* when the stepper runs to a certain position then it is better to
    * consider the reamining distance to the target for the speed 
@@ -96,9 +106,9 @@ private:
 
   void calcDirection(void);
 
-  /* gets a frequency and creates pulses on the step
-   * pin. Needs to be called cyclic */
-  void createStepPulse();
+  void rampSpeed(FLOAT targetSpeed);
+
+  FLOAT limitSpeed(FLOAT currSpeed, LONG distToGo);
 
 };
 
