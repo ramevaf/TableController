@@ -33,7 +33,8 @@ void MyStepperController::moveTo(LONG targetStep)
    * positive valies result in cw rotation, negative ones in ccw */
 void MyStepperController::setTargetSpeed(FLOAT ts)
 {
-    targetSpeed = ts;
+    if (ctrlMode != POSITIONING)
+        targetSpeed = ts;
 }
 
 /* set max allowed speed (steps/s) */
@@ -59,6 +60,18 @@ FLOAT MyStepperController::getCurrentSpeed(void)
 {
     return currSpeed;
 }
+
+BOOL MyStepperController::isRunning(void)
+{
+    return (STOP != rotDir);
+}
+
+void MyStepperController::stop(void)
+{
+    setTargetSpeed(0.0);
+    ctrlMode = SPEED_CTRL;
+}
+
 /* returns control mode speed */
 CTRL_MODE  MyStepperController::getCtrlMode(void)
 {
@@ -86,6 +99,11 @@ void MyStepperController::setStepCount(LONG pos)
     stepCount = pos;
 }
 
+void MyStepperController::setLimitProtectionEnabled(BOOL enbl)
+{
+    limitProtectionEnabled = enbl;
+}
+
 void MyStepperController::reset(void)
 {
     stepCount = 0;
@@ -96,7 +114,6 @@ void MyStepperController::doStep(DIRECTION direction)
     switch (direction)
     {
     case STOP:
-        digitalWrite(pinStep, LOW);
         return;
     case CLOCKWISE:
         // write DIR pin
@@ -120,46 +137,86 @@ void MyStepperController::doStep(DIRECTION direction)
 
 void MyStepperController::runSpeed(void)
 {
-    ULONG tCurrent = micros();
-    tPeriod = getNewPeriod();
+    static ULONG tPulseBegin;   // time when the last step pulse has been done
+    ULONG time = micros();
 
-    if (tCurrent - tPulseBegin >= tPeriod)
+    if(rotDir == STOP)
+        n = 0; // used for speed calculation of the first step
+    if (time - tPulseBegin >= tPeriod)
     {
         doStep(rotDir);        
-        tPulseBegin = tCurrent;
-    }
+        tPeriod = getNewPeriod();
+        tPulseBegin = time;
+    }    
 }
 
 ULONG MyStepperController::getNewPeriod()
 {
-    // convert frequency into period
+    static ULONG rest;
+    FLOAT fnew, f;
+    ULONG tPeriodNew;
+    INT i;
+
+    ULONG currfrequency = abs(currSpeed);
+
     if (rotDir != STOP)
-        return ((FLOAT) SECOND / (FLOAT)currfrequency);
+    {
+        if (currSpeed < targetSpeed)
+        {
+            if(n==0)
+            {
+                tPeriodNew = (FLOAT)SECOND_US*sqrt(2.0f/(FLOAT)acceleration);
+            }
+            else
+            {
+                // tPeriodNew = tPeriod - (2*tPeriod+rest)/(4*n+1);
+                // rest = (2*tPeriod+rest)%(4*n+1);
+                tPeriodNew = ((FLOAT)SECOND_US / (FLOAT)currfrequency);
+            }
+            n++;
+        }
+        else if (currSpeed == targetSpeed)
+        {
+            tPeriodNew = tPeriod;
+        }
+        else /*decellerate*/
+        {
+            if(n==0)
+            {
+                tPeriodNew = (FLOAT)SECOND_US*sqrt(2.0f/(FLOAT)acceleration);
+            }
+            else
+            {
+                // tPeriodNew = tPeriod + (2*tPeriod+rest)/(4*n+1);
+                // rest = (2*tPeriod+rest)%(4*n+1);
+
+                tPeriodNew = ((FLOAT)SECOND_US / (FLOAT)currfrequency);
+            }
+            n--;
+        }
+    }
     else
-        // avoid very high numbers if stopped
-        return 0;
+    {
+        tPeriodNew = 0;
+    }
+
+    return tPeriodNew;
 }
 
 /* calculates the current speed depending on the user given target speed
    * considering the acceleration */
 void MyStepperController::calcSpeed(void)
 {
-    /*  distance to get to Stop = curretSpeed^2 / 2*a */
-    // LONG brakeDist = currSpeed * currSpeed / (2 * acceleration) + 1;
+    /* 1. if we want to run to a position we just modify the target speed
+     * to the max allowed speed */
     if (POSITIONING == ctrlMode)
     {
         if (stepCount < targetPos)
-        {
             targetSpeed = maxSpeed;
-        }
         else if (stepCount > targetPos)
-        {
             targetSpeed = -maxSpeed;
-        }
-        else // stepCount == targetPos
-        {
-            ctrlMode = END_PROTECTION;
-        }
+        else /* target position reached, go back to SPEED_CTRL */
+            ctrlMode = SPEED_CTRL;
     }
     else
     {
@@ -167,53 +224,55 @@ void MyStepperController::calcSpeed(void)
         targetSpeed = constrain(targetSpeed, -maxSpeed, maxSpeed);
     }
 
-    /* ramp current speed to targetspeed */
+    /* 2. next step is to gradually ramp the current speed to targetspeed */
     rampSpeed(targetSpeed);
 
-    /* end protection with upper/lower limit: limit current speed*/
-    if (UNLIMED != ctrlMode)
+    /* 3. after that we reduce the speed in case we get near the limits if 
+     * limit pretection is  enabled */
+    if (true == limitProtectionEnabled)
     {
         if(currSpeed > 0.0f)
-            currSpeed = limitSpeed(currSpeed, upperLimit - stepCount);
+            currSpeed = limitSpeed(upperLimit - stepCount);
         else
-            currSpeed = limitSpeed(currSpeed, lowerLimit - stepCount);
+            currSpeed = limitSpeed(lowerLimit - stepCount);
     }
-
+    /* 4. and if we are running towards a position we do the same with the
+     * target position instead of the limit */
     if (POSITIONING == ctrlMode)
-    {
-        currSpeed = limitSpeed(currSpeed, targetPos - stepCount);
-    }
+        currSpeed = limitSpeed(targetPos - stepCount);
 
-    // absolute value of frequency is passed to STEP pin impuls generator
-    currfrequency = abs(currSpeed);
 }
 
 void MyStepperController::rampSpeed(FLOAT targetSpeed)
 {
     /* generate a linar ramp up/down */
     static ULONG tlastRun = 0;
-    ULONG tCurrent = micros();
-    
-    /* v = v0 + a*dt */
-    FLOAT dSpeed= (FLOAT)((tCurrent - tlastRun) * acceleration) / SECOND;
+    ULONG time = millis();
+    ULONG dt = time - tlastRun;
 
-    if (currSpeed < targetSpeed)
+    if (dt != 0)
     {
-        currSpeed += dSpeed;
-        // limit to targetspeed
-        currSpeed = min(currSpeed, targetSpeed);
-    }
-    else
-    {
-        currSpeed -= dSpeed;
-        // limit to targetspeed
-        currSpeed = max(currSpeed, targetSpeed);
+        if (currSpeed < targetSpeed)
+        {
+            /* accelerate: v = v0 + a*dt */
+            currSpeed += (dt/SECOND_MS * acceleration) ;
+            /* limit to targetspeed */
+            currSpeed = min(currSpeed, targetSpeed);
+        }
+        else
+        {
+            /* decellerate: v = v0 - a*dt */
+            currSpeed -= (dt/SECOND_MS * acceleration);
+            /* limit to targetspeed */
+            currSpeed = max(currSpeed, targetSpeed);
+        }
+
+        tlastRun = time;
     }
 
-    tlastRun = tCurrent;
 }
 
-FLOAT MyStepperController::limitSpeed(FLOAT currSpeed, LONG distToGo)
+FLOAT MyStepperController::limitSpeed(LONG distToGo)
 {
     FLOAT retVal;
     FLOAT maxSpeed;
@@ -243,18 +302,16 @@ void MyStepperController::calcDirection(void)
     // since speed variables are FLOAT we need to have a threshold below
     // the motor speed shall be considered as zero
 
-    if (abs(currSpeed) < (FLOAT)STOP_THRESHOLD)
+    if (abs(currSpeed) < (FLOAT)STOP_THRESHOLD) 
     {
         rotDir = STOP;
     }
     else if (currSpeed > 0.0f)
     {
         rotDir = CLOCKWISE;
-        digitalWrite(pinDir, LOW);
     }
     else
     {
         rotDir = COUNTERCLOCKWISE;
-        digitalWrite(pinDir, HIGH);
     }
 }

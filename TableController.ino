@@ -35,7 +35,7 @@
 // STEPPER
 #define STEPPER_STEPS_PER_REV 400
 #define STEPPER_MAX_SPEED 3
-#define STEPPER_ACCEL 3
+#define STEPPER_ACCEL 1
 #define STEPPER_MIN_POS 0
 #define STEPPER_MAX_POS 45000
 #define STEPPER_CALIBMODE_POS_EXTENSION 40000
@@ -85,16 +85,28 @@ BUTTON_STS pos2ButtonStsK1;
 
 void savePosToEE(void)
 {
-  // print for debug
-  // Serial.print("\n currentPos: ");
-  // Serial.print(posStorage.currentPos);
-  // Serial.print("\n pos1: ");
-  // Serial.print(posStorage.pos1);
-  // Serial.print("\n pos2: ");
-  // Serial.print(posStorage.pos2);
-
-  // position has changed. Update posStorage
-  if (EE_ENABLED) EEPROM.put(EE_START_ADDR, posStorage);
+   /* write position into EEPROM after motor has stopped + delay */
+  if (true == stepper.isRunning())
+  {
+    /* save timestamp when motor is runnin */
+    tLastMotorRunning = millis();
+    posWritten = false;
+  }
+  else
+  {
+    if (  (millis() - tLastMotorRunning >= EE_TIME_AFTER_LAST_MOVE)
+       && (false == posWritten)
+       )
+    {
+      // position has changed. Update posStorage
+      if (EE_ENABLED)
+      {
+        EEPROM.put(EE_START_ADDR, posStorage);
+        Serial.print("\n Position saved in EEPROM");
+      }
+      posWritten = true;
+    }
+  }
 }
 
 /* setup task of the Arduino: called once at startup */
@@ -111,7 +123,7 @@ void setup()
   stepper.setMaxSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
   stepper.setAcceleration(STEPPER_ACCEL*STEPPER_STEPS_PER_REV);
   stepper.setLowerLimit(0);
-  stepper.setUpperLimit(5000);
+  stepper.setUpperLimit(10000);
 }
 
 /* called every 20 ms. All the slow stuff gets in here */
@@ -126,23 +138,9 @@ void task20ms(void)
   // write LED output
   calibLed.writeOut();
 
-  // if (true == stepper.isRunning())
-  // {
-  //   // motor stopped
-  //   tLastMotorRunning = millis();
-  //   posWritten = false;
-  // }
-  // else
-  // {
-  //   if (  (millis() - tLastMotorRunning >= EE_TIME_AFTER_LAST_MOVE)
-  //      && (false == posWritten)
-  //      )
-  //   {
-  //     savePosToEE();
-  //     posWritten = true;
-  //   }
-  // }
+  // stepper.calcSpeed();
 
+  savePosToEE();
 }
 
 /* called every 1000 ms. All the slow stuff gets in here */
@@ -167,8 +165,6 @@ void taskFast(void)
   BUTTON_STS pos2ButtonSts = pos2Button.getStatus();
 
   
-
-
   // ----------------------------------------------------------------------------
   // drive up button logic:
   //    pressed: drive up
@@ -177,15 +173,8 @@ void taskFast(void)
      || (FALLING_EDGE == driveUpButtonSt.status)
      )
   {
-    if (true == calibModeEnabled)
-    {
-      stepper.setTargetSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
-    }
-    else
-    {
-      stepper.setTargetSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
-      // stepper.moveTo(STEPPER_MAX_POS);
-    }    
+    stepper.stop(); // if stepper moves to position it shall stop the order
+    stepper.setTargetSpeed(STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
   }
   
   // ----------------------------------------------------------------------------
@@ -196,15 +185,8 @@ void taskFast(void)
           || (FALLING_EDGE == driveDownButtonSt.status)
           )
   {
-    if (true == calibModeEnabled)
-    {
-      stepper.setTargetSpeed(-STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
-    }
-    else
-    {
-      stepper.setTargetSpeed(-STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
-      // stepper.moveTo(STEPPER_MIN_POS);
-    }    
+    stepper.stop(); /// if stepper moves to position it shall stop the order
+    stepper.setTargetSpeed(-STEPPER_MAX_SPEED*STEPPER_STEPS_PER_REV);
   }
   else
   {
@@ -239,10 +221,6 @@ void taskFast(void)
     }
   }
 
-  // Serial.print("\n stepperPos: ");
-  // Serial.print(stepper.getStepCount());
-  
-
   // toggle caliibration mode on/off on return button long tip 
   if (  (LONG_TIP != returnButtonStsK1.tipType)
      && (LONG_TIP == returnButtonSts.tipType)
@@ -250,6 +228,11 @@ void taskFast(void)
   {
     calibModeEnabled = !calibModeEnabled;
     calibLed.toggle();
+    
+    if(true == calibModeEnabled)
+      stepper.setLimitProtectionEnabled(false);
+    else
+      stepper.setLimitProtectionEnabled(true);
   }
 
 
@@ -301,19 +284,20 @@ void taskFast(void)
     calibLed.blink(300);
   }
 
-
+  /* call stepper main loop as often as possible */
   stepper.run();
-
+  /* update posStorage */
   posStorage.currentPos = stepper.getStepCount();
 
+  /* save K1 values */
   returnButtonStsK1 = returnButtonSts;
   pos1ButtonStsK1 = pos1ButtonSts;
   pos2ButtonStsK1 = pos2ButtonSts;
 }
 
 /* this is the main loop of the Arduino. It contains a very simple
-  task sheduler to have a fast task for the motor controll and a slow
-  on for calculating the inputs and outputs */
+  task sheduler to have a fast task for the motor controll and slower
+  ones for calculating the inputs and outputs */
 void loop()
 {
   ULONG tCurrent = millis();
