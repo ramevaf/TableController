@@ -4,11 +4,10 @@
 #include "types.h"
 #include "Arduino.h"
 
-#define PULSE_DURATION 1  // microseconds
+const ULONG PULSE_DURATION = 1;     // pilse duration on step pulse in microseconds
 const FLOAT SECOND_US = 1000000.0;  // 1s = 10e6 µs
-const FLOAT SECOND_MS = 1000.0; // 1s = 1000 ms
-
-const FLOAT STOP_THRESHOLD = 0.5;  // steps/s
+const FLOAT SECOND_MS = 1000.0;     // 1s = 1000 ms
+const FLOAT STOP_THRESHOLD = 0.5;   // threshold under which the stepper is considered as stopped in steps/s
 
 enum DIRECTION
 {
@@ -44,42 +43,53 @@ public:
    * negative ones in counterclockwise */
   void setTargetSpeed(FLOAT ts);
 
-  /* set max allowed speed (steps/s) */
+  /* set max allowed speed (steps/s)
+   * \param[in] maxSpeed maximum alled speed (absolute value used) */
   void setMaxSpeed(FLOAT maxSpeed);
 
-  /* set acceleration (steps/s^2) */
+  /* set acceleration (steps/s^2) 
+   * \param[in] accel acceleration in steps/second^2*/
   void setAcceleration(UINT accel);
 
-  /* returns current position */
-  LONG getStepCount(void);
-
-  /* returns current speed */
-  FLOAT getCurrentSpeed(void);
-
-  /* returns current speed */
-  CTRL_MODE getCtrlMode(void);
-
-  DIRECTION getRotDir(void);
-
+  /* set lower end point 
+   * \param[in] pos position of lower limit in steps */
   void setLowerLimit(LONG pos);
 
+  /* set upper end point 
+   * \param[in] pos position of upper limit in steps */
   void setUpperLimit(LONG pos);
 
+  /* reset the step count of motor
+   * \param[in] pos new position of the motor in steps */
   void setStepCount(LONG pos);
 
+  /* enable/siable end point protection
+   * \param[in] enbl if true end point protection is ON */
   void setLimitProtectionEnabled(BOOL enbl);
-  /* returns TRUE if stepper is running  */
+
+  /* returns current position
+   * \return current motor position in steps */
+  LONG getStepCount(void);
+
+  /* returns current speed 
+   * \return current motor speed in steps/s */
+  FLOAT getCurrentSpeed(void);
+
+  /* returns currently active control mode 
+   * \return currently active control mode  */
+  CTRL_MODE getCtrlMode(void);
+
+  /* returns direction of rotation 
+   * \return direction of rotation or STOP if stopped  */
+  DIRECTION getRotDir(void);
+
+  /* returns whether stepper is running
+   * \return true if motor is running */
   BOOL isRunning(void);
 
-  void reset(void);
-
+  /* makes to motor turn one step
+   * \param[in] direction direction of desired rotation */
   void doStep(DIRECTION direction);
-
-  void runSpeed(void);
-
-  /* calculates the current speed depending on the user given target speed
-   * considering the acceleration */
-  void calcSpeed(void);
 
 private:
 
@@ -103,14 +113,26 @@ private:
   LONG upperLimit = LONG_MAX; // upper end point
   LONG lowerLimit = 0;        // lower end point
 
+  /* calculates the current speed depending on the user given target speed
+   * considering the acceleration */
+  void calcSpeed(void);
 
+  /* converts the current speed into pulses on STEP and DIR */
+  void runSpeed(void);
 
+  /* calculates new period time for STEP timer depending on speed
+   * \returns new period time */
   ULONG getNewPeriod(void);
 
-  void rampSpeed(FLOAT targetSpeed);
+  /* calculates ramp from current speed to target speed */
+  void rampSpeed(void);
 
+  /* limits speed to target speed if near limit or position
+   * param[in] distToGo remaining distance in steps 
+   * \returns new speed in steps/s */
   FLOAT limitSpeed(LONG distToGo);
 
+  /* calculates current direction of rotation */
   void calcDirection(void);
 };
 

@@ -40,7 +40,7 @@ void MyStepperController::setTargetSpeed(FLOAT ts)
 /* set max allowed speed (steps/s) */
 void MyStepperController::setMaxSpeed(FLOAT maxSpeed)
 {
-    this->maxSpeed = maxSpeed;
+    maxSpeed = abs(maxSpeed);
 }
 
 /* set acceleration (steps/s^2) */
@@ -102,11 +102,6 @@ void MyStepperController::setStepCount(LONG pos)
 void MyStepperController::setLimitProtectionEnabled(BOOL enbl)
 {
     limitProtectionEnabled = enbl;
-}
-
-void MyStepperController::reset(void)
-{
-    stepCount = 0;
 }
 
 void MyStepperController::doStep(DIRECTION direction)
@@ -225,7 +220,7 @@ void MyStepperController::calcSpeed(void)
     }
 
     /* 2. next step is to gradually ramp the current speed to targetspeed */
-    rampSpeed(targetSpeed);
+    rampSpeed();
 
     /* 3. after that we reduce the speed in case we get near the limits if 
      * limit pretection is  enabled */
@@ -243,7 +238,7 @@ void MyStepperController::calcSpeed(void)
 
 }
 
-void MyStepperController::rampSpeed(FLOAT targetSpeed)
+void MyStepperController::rampSpeed(void)
 {
     /* generate a linar ramp up/down */
     static ULONG tlastRun = 0;
