@@ -1,7 +1,7 @@
 /*
-  This file contains a class deinition for a simple LED which can turned on, off and flicker/blink.
-  The calculation of the internal stati and writing to the pin is   split up into different methods
-  so you can controll how often you need update the output.
+  This file contains a class definition for a simple LED which can turned on, off and 
+  flicker/blink. The calculation of the internal stati and writing to the pin is split up into 
+  different methods so you can controll how often you need update the output.
 
   Author: Daniel Ramonat
   Date: 07.10.2020
@@ -11,6 +11,7 @@
 #define MYLED_H
 
 #include "types.h"
+#include "Arduino.h"
 
 enum LEDSTAT
 {
@@ -29,99 +30,31 @@ enum BLINKTYPE
 class MyLED
 {
 public:
-    MyLED(short pinNumber)
-    {
-        this->pinNumber = pinNumber;
-        pinMode(pinNumber, OUTPUT);
-    }
+    /* constructor
+     * \param[in] pin the arduino pin number where the LED is at */ 
+    MyLED(short pin);
 
-    void turnOn(void)
-    {
-        status =   ON;
-    }
+    /* thurns the LED on */
+    void turnOn(void);
     
-    void turnOff(void)
-    {
-        status = OFF;
-    }
+    /* thurns the LED off */
+    void turnOff(void);
 
-    void toggle(void)
-    {
-        if (status == OFF)
-        {
-          status = ON;
-        }
-        else
-        {
-          status = OFF;
-        }
-    }
+    /* what the name says */
+    void toggle(void);
 
-    void blink(ULONG duration)
-    {
-        status = BLINK;
-        blinkDur = duration;
-    }
+    /* lets the LED blink either on->off->on or off->on->off
+     * \param[in] duration duration of blink */ 
+    void blink(ULONG duration);
 
-    // writing internal status to actuall pin OUTPUT
-    // this is rather slow so call not too regulary
-    void writeOut(void)
-    {
-        // write output only on event
-        if (    (statusK1 != ON)
-             && (status == ON)
-           )
-        {
-            digitalWrite(pinNumber, HIGH);
-        }
-        else if (    (statusK1 != OFF)
-                  && (status == OFF)
-                )
-        {
-            digitalWrite(pinNumber, LOW);
-        }
-        // blinking start
-        else if (    (statusK1 != BLINK)
-                  && (status == BLINK)
-                )
-        {
-            startBlink = millis();
-            if (statusK1 == OFF)
-            {
-                blinkType = OFF_ON_OFF;
-                digitalWrite(pinNumber, HIGH);
-            }
-            else
-            {
-                blinkType = ON_OFF_ON;
-                digitalWrite(pinNumber, LOW);
-            }
-        }
-        // blinking in progress
-        else if (   (status == BLINK)
-                 && ((millis() - startBlink) > blinkDur)
-                )
-        {
-            if(blinkType == ON_OFF_ON)
-            {
-                digitalWrite(pinNumber, HIGH);
-                status = ON;
-            }
-            else
-            {
-                digitalWrite(pinNumber, LOW);
-                status = OFF;
-            }
-        }
-
-        statusK1 = status;
-    }
+    /* writing internal status to actuall pin OUTPUT. This is rather slow */
+    void writeOut(void);
 
 private:
-    USHORT pinNumber;       // Pin number where the LED is conneted
+    const USHORT pinNumber; // Pin number where the LED is conneted
     LEDSTAT status;         // status see LEDSTAT
     LEDSTAT statusK1;       // status of the last cycle
-    ULONG startBlink;       // time when the blinking startet (actual output)
+    ULONG tStartBlink;      // time when the blinking startet (actual output)
     ULONG blinkDur;         // blinking duration
     BLINKTYPE blinkType;    // whether blink startet when LED was on or off, see BLINKTYPE
 };

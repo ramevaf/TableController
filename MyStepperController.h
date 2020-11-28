@@ -4,10 +4,10 @@
 #include "types.h"
 #include "Arduino.h"
 
-const ULONG PULSE_DURATION = 1;     // pilse duration on step pulse in microseconds
+const ULONG PULSE_DURATION = 1;     // pulse duration on step pulse in microseconds
 const FLOAT SECOND_US = 1000000.0;  // 1s = 10e6 µs
 const FLOAT SECOND_MS = 1000.0;     // 1s = 1000 ms
-const FLOAT STOP_THRESHOLD = 0.5;   // threshold under which the stepper is considered as stopped in steps/s
+const FLOAT STOP_THRESHOLD = 0.5;   // threshold where the stepper is considered stopped in steps/s
 
 enum DIRECTION
 {
@@ -45,7 +45,7 @@ public:
 
   /* set max allowed speed (steps/s)
    * \param[in] maxSpeed maximum alled speed (absolute value used) */
-  void setMaxSpeed(FLOAT maxSpeed);
+  void setMaxSpeed(FLOAT speed);
 
   /* set acceleration (steps/s^2) 
    * \param[in] accel acceleration in steps/second^2*/
@@ -102,7 +102,6 @@ private:
   FLOAT targetSpeed;          // desired speed in steps/s in speed control mode
   FLOAT maxSpeed = SECOND_US/(PULSE_DURATION*2); // maximum allowed speed in steps/s
   UINT acceleration;          // acceleration in steps/s^2, also used for decelleration
-  ULONG tPulseBegin;          // timestamp in begining of the current period for the STEP pin
   DIRECTION rotDir;           // current motor direction (cw/ccw/stop)
   ULONG tPeriod;              // period time for the current period of the step pin
   CTRL_MODE ctrlMode;         // whether the stepper is running to a position or in speed control
@@ -134,6 +133,7 @@ private:
 
   /* calculates current direction of rotation */
   void calcDirection(void);
+
 };
 
 #endif

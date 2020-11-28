@@ -12,6 +12,7 @@
 #define MYBUTTON_H
 
 #include "types.h"
+#include "Arduino.h"
 
 /* typdefs */
 enum TIPSTS
@@ -39,121 +40,44 @@ struct BUTTON_STS
 class MyButton
 {
 public:
-  /* constructor: needs the arduino pin number */
-  MyButton(short pinNumber)
-  {
-    this->pinNumber = pinNumber;
-    pinMode(pinNumber, INPUT);
-  }
+  /* constructor
+   * \param[in] pin the arduino pin number where the LED is at */ 
+  MyButton(short pin);
 
   /* reads in the pin and calculates the new status */
-  void updateStatus(void)
-  {
-    rawButtonSts = digitalRead(pinNumber);
-    updateTipStatus(rawButtonSts);
-    updateTipType();
-  }
+  void updateStatus(void);
 
-  /* getter for the status */
-  BUTTON_STS getStatus(void)
-  {  
-    return btnSts;
-  }
+  /* getter for the status
+   * \return current Button status */ 
+  BUTTON_STS getStatus(void);
 
-  /* set debounce time */
-  void setDebounceDelay(ULONG ms)
-  {
-    debounceDelay = ms;
-  }
+  /* set debounce time
+   * \param[in] ms debounce time in ms */ 
+  void setDebounceDelay(ULONG ms);
 
-  /* set time after which the tip is considered a long tip*/
-  void setLongTipDelay(ULONG ms)
-  {
-    longTipDelay = ms;
-  }
+  /* set time after which the tip is considered a long tip
+   * \param[in] ms minimum long tip duration in ms */ 
+  void setLongTipDelay(ULONG ms);
 
 private:
-  // default paramteters
-  ULONG debounceDelay = 100;
+  void (*fctOnButtonPressed)(void);
+  void (*fctOnButtonReleased)(void);
+
+  const USHORT pinNumber;
+  ULONG debounceDelay = 50;
   ULONG longTipDelay = 2000;
-  USHORT pinNumber;
-  // internal stati
   ULONG lastDebounceTime;
   ULONG lastRisingEdgeTime;
   USHORT rawButtonSts;
   USHORT rawButtonStsK1;
   BUTTON_STS btnSts;
 
-  /* calculates whether the button is pressed and the edges */
-  void updateTipStatus(USHORT readVal)
-  {
-    // safe timestamp of level change
-    if (readVal != rawButtonStsK1)
-    {
-      lastDebounceTime = millis();
-      // if the button transists to HIGH, safe the time for tiptype calculation
-      if (HIGH == readVal)
-      {
-        lastRisingEdgeTime = millis();
-      }
-    }
-    // compare timestamps for debouncing
-    if ((millis() - lastDebounceTime) > debounceDelay)
-    {
-      // calculate status based on debounced signal
-      if (readVal == HIGH)
-      {
-        switch (btnSts.status)
-        {
-        case PRESSED:
-        case RISING_EDGE:
-          btnSts.status = PRESSED;
-          break;
-        case NOT_PRESSED:
-        case FALLING_EDGE:
-          btnSts.status = RISING_EDGE;
-          break;
-        }
-      }
-      else // LOW
-      {
-        switch (btnSts.status)
-        {
-        case PRESSED:
-        case RISING_EDGE:
-          btnSts.status = FALLING_EDGE;
-          break;
-        case NOT_PRESSED:
-        case FALLING_EDGE:
-          btnSts.status = NOT_PRESSED;
-          break;
-        }
-      }
-    }
-    rawButtonStsK1 = readVal;
-  }
+  /* calculates whether the button is pressed and the edges
+   * \param[in] readVal raw value of the pin */ 
+  void updateTipStatus(USHORT readVal);
 
   /* calculates whether the press is a long/short one */
-  void updateTipType(void)
-  {
-    // even on FALLING_EDGE the tiptype is transmitted to be SHORT_TIP or LONG_TIP. This makes it way easier to check for type
-    if (NOT_PRESSED != btnSts.status)
-    {
-      // time since rising edge
-      if ((millis() - lastRisingEdgeTime) > longTipDelay)
-      {
-        btnSts.tipType = LONG_TIP;
-      }
-      else
-      {
-        btnSts.tipType = SHORT_TIP;
-      }
-    }
-    else
-    {
-      btnSts.tipType = NONE;
-    }
-  }
+  void updateTipType(void);
 };
 
 #endif
