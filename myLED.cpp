@@ -1,6 +1,6 @@
 #include "myLED.h"
 
-MyLED::MyLED(short pin)
+MyLED::MyLED(USHORT pin = 1)
     :pinNumber(pin)
 {
     pinMode(pin, OUTPUT);

@@ -1,16 +1,34 @@
 #include "MyButton.h"
 
-MyButton::MyButton(short pin)
-    :pinNumber(pin)
+MyButton::MyButton(short pin, void (*onShortTip)(void), void (*onLongTip)(void))
+    :pinNumber(pin), fctOnShortTip(onShortTip), fctOnLongTip(onLongTip)
 {
     pinMode(pinNumber, INPUT);
 }
 
 void MyButton::updateStatus(void)
 {
+    /* save tiptype to detect edge */
+    TIPTYPE tipTypeK1 = btnSts.tipType;
+
     rawButtonSts = digitalRead(pinNumber);
     updateTipStatus(rawButtonSts);
     updateTipType();
+
+    /* call event based methods on short resp. long tip */
+    if (    (FALLING_EDGE == btnSts.status)
+         && (SHORT_TIP == btnSts.tipType)
+         && (nullptr != fctOnShortTip))
+    {
+        fctOnShortTip();
+    }
+    else if (   (LONG_TIP == btnSts.tipType)
+             && (LONG_TIP != tipTypeK1)
+             && (nullptr != fctOnLongTip))
+    {
+        fctOnLongTip();
+    }
+
 }
 
 BUTTON_STS MyButton::getStatus(void)
@@ -33,15 +51,15 @@ void MyButton::updateTipStatus(USHORT readVal)
     /* safe timestamp of level change */
     if (readVal != rawButtonStsK1)
     {
-        lastDebounceTime = millis();
+        tLastDebounce = millis();
         /* if the button transists to HIGH, safe the time for tiptype calculation */
         if (HIGH == readVal)
         {
-            lastRisingEdgeTime = millis();
+            tLastRisingEdge = millis();
         }
     }
     /* compare timestamps for debouncing */
-    if ((millis() - lastDebounceTime) > debounceDelay)
+    if ((millis() - tLastDebounce) > debounceDelay)
     {
         /* calculate status based on debounced signal */
         if (readVal == HIGH)
@@ -83,7 +101,7 @@ void MyButton::updateTipType(void)
     if (NOT_PRESSED != btnSts.status)
     {
         /* time since rising edge */
-        if ((millis() - lastRisingEdgeTime) > longTipDelay)
+        if ((millis() - tLastRisingEdge) > longTipDelay)
         {
             btnSts.tipType = LONG_TIP;
         }

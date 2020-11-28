@@ -42,7 +42,9 @@ class MyButton
 public:
   /* constructor
    * \param[in] pin the arduino pin number where the LED is at */ 
-  MyButton(short pin);
+  MyButton(short pin, 
+           void (*onShortTip)(void) = nullptr, 
+           void (*onLongTip)(void) = nullptr);
 
   /* reads in the pin and calculates the new status */
   void updateStatus(void);
@@ -60,14 +62,15 @@ public:
   void setLongTipDelay(ULONG ms);
 
 private:
-  void (*fctOnButtonPressed)(void);
-  void (*fctOnButtonReleased)(void);
+  /* pointer to event functions */
+  void (*fctOnShortTip)(void);
+  void (*fctOnLongTip)(void);
 
   const USHORT pinNumber;
   ULONG debounceDelay = 50;
   ULONG longTipDelay = 2000;
-  ULONG lastDebounceTime;
-  ULONG lastRisingEdgeTime;
+  ULONG tLastDebounce;
+  ULONG tLastRisingEdge;
   USHORT rawButtonSts;
   USHORT rawButtonStsK1;
   BUTTON_STS btnSts;

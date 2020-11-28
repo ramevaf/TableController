@@ -32,7 +32,7 @@ class MyLED
 public:
     /* constructor
      * \param[in] pin the arduino pin number where the LED is at */ 
-    MyLED(short pin);
+    MyLED(USHORT pin);
 
     /* thurns the LED on */
     void turnOn(void);
