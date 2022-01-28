@@ -31,25 +31,26 @@
 #define SERIAL_BAUD               9600
 /* TASK SCHEDULER */
 #define TASK_TIME_20MS            20
+#define TASK_TIME_1000MS          1000
 /* STEPPER */
 #define STEPPER_STEPS_PER_REV     400
-#define STEPPER_MAX_SPEED         7
-#define STEPPER_ACCEL             4
+#define STEPPER_MAX_SPEED         2.6
+#define STEPPER_ACCEL             3
 #define STEPPER_MIN_POS           0
-#define STEPPER_MAX_POS           45000
+#define STEPPER_MAX_POS           50000
 /* PINS */
 #define PIN_STEPPER_DIR           2
 #define PIN_STEPPER_STEP          3
 #define PIN_STEPPER_ENBL          4
-#define PIN_CALIBRATION_MODE_LED  7
+#define PIN_CALIBRATION_MODE_LED  12
 #define PIN_DRIVE_UP              8
 #define PIN_DRIVE_DOWN            9
 #define PIN_POS_RETURN_PIN        10
-#define PIN_POS1_PIN              12
+#define PIN_POS1_PIN              11
 #define PIN_POS2_PIN              13
 /* EEPROM */
-#define EE_ENABLED                0 // allows to disable EEPROM writing for testing
-#define EE_TIME_AFTER_LAST_MOVE   5000
+#define EE_ENABLED                1 // allows to disable EEPROM writing for testing
+#define EE_TIME_AFTER_LAST_MOVE   1000
 #define EE_START_ADDR             0
 
 /* ---------- USER DEFINED DATATYPES ------------ */
@@ -72,12 +73,13 @@ void onEvent_buttonPos2LongTip(void);
 /* ---------- GLOBAL VARIABLES ------------------ */
 /* timestamps */
 ULONG tLastT20call;
+ULONG tLastT1000call;
 ULONG tLastMotorRunning;
 
 MyStepperController stepper(STEPPER_STEPS_PER_REV, PIN_STEPPER_STEP, PIN_STEPPER_DIR);
 MyButton driveUpButton(PIN_DRIVE_UP);
 MyButton driveDownButton(PIN_DRIVE_DOWN);
-MyButton returnButton(PIN_POS_RETURN_PIN, &onEvent_buttonReturnShortTip, &onEvent_buttonReturnLongTip);
+ MyButton returnButton(PIN_POS_RETURN_PIN, &onEvent_buttonReturnShortTip, &onEvent_buttonReturnLongTip);
 MyButton pos1Button(PIN_POS1_PIN, &onEvent_buttonPos1ShortTip, &onEvent_buttonPos1LongTip);
 MyButton pos2Button(PIN_POS2_PIN, &onEvent_buttonPos2ShortTip, &onEvent_buttonPos2LongTip);
 MyLED calibLed(PIN_CALIBRATION_MODE_LED);
@@ -87,8 +89,8 @@ bool posWritten = true;
 
 /* motor speed curve to take the nonlinear force to stroke curve of the scissor lift into 
  * constideration*/
-const ULONG speedCurveRanges[] = {0, 2000, 4000, 6000, 8000, 999999};
-const FLOAT speedCurveSpeeds[] = {0.75, 1.5, 3.0, 5.0, STEPPER_MAX_SPEED, STEPPER_MAX_SPEED};
+const ULONG speedCurveRanges[] = {0, 2000, 4666, 8000, 25000, 220000, 999999};
+const FLOAT speedCurveSpeeds[] = {0.5, 0.8, 1.3, 1.55, 1.9 , STEPPER_MAX_SPEED, STEPPER_MAX_SPEED};
 
 /* ---------- FUNCTIONS ------------------- */
 
@@ -96,6 +98,8 @@ const FLOAT speedCurveSpeeds[] = {0.75, 1.5, 3.0, 5.0, STEPPER_MAX_SPEED, STEPPE
  * on short tip: goto zero position (save zero and reset memory in calibMode) */
 void onEvent_buttonReturnShortTip(void)
 {
+  // Serial.print("\n onEvent_buttonReturnShortTip");
+  
   if (false == calibModeEnabled)
   {
     /* go to zero position if not in calibration mode */
@@ -196,15 +200,21 @@ void task20ms(void)
   stepper.setMaxSpeed(newMaxSpeed*STEPPER_STEPS_PER_REV);
 }
 
+/* called every 1 s. All the very slow stuff gets in here */
+void task1000ms(void)
+{
+  // Serial.print("\n Stepper position:");
+  // Serial.print(stepper.getStepCount());
+  // Serial.print("\n Stepper speed:");
+  // Serial.print(stepper.getMaxSpeed()/STEPPER_STEPS_PER_REV);
+  
+}
 /* fast task for driving the motor. This is called as often as possible */
 void taskFast(void)
 {
   // only read status but not calculate
   BUTTON_STS driveUpButtonSt = driveUpButton.getStatus();
   BUTTON_STS driveDownButtonSt = driveDownButton.getStatus();
-  BUTTON_STS returnButtonSts = returnButton.getStatus();
-  BUTTON_STS pos1ButtonSts = pos1Button.getStatus();
-  BUTTON_STS pos2ButtonSts = pos2Button.getStatus();
 
   
   /* process up/down button logic. If UP pressed drive clockwise... */
@@ -243,6 +253,11 @@ void loop()
   {
     task20ms();
     tLastT20call = tCurrent;
+  }
+  if(tCurrent - tLastT1000call >= TASK_TIME_1000MS)
+  {
+    task1000ms();
+    tLastT1000call = tCurrent;
   }
   
   taskFast();
@@ -303,4 +318,3 @@ void savePosToEE(void)
     }
   }
 }
-
